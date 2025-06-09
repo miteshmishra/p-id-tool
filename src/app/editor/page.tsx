@@ -71,6 +71,8 @@ const Editor = () => {
         node: Node,
         point: "top" | "right" | "bottom" | "left"
     ) => {
+        // Calculate connection points relative to the node's center
+        // without snapping to grid to maintain proper node alignment
         switch (point) {
             case "top":
                 return { x: node.x, y: node.y - node.radius };
@@ -89,21 +91,11 @@ const Editor = () => {
     ) => {
         const points = [{ x: from.x, y: from.y }];
 
-        // Calculate the horizontal and vertical distances
-        const dx = to.x - from.x;
-        const dy = to.y - from.y;
-
-        // Determine if we should go horizontal first or vertical first
-        // We'll go horizontal first if the horizontal distance is greater
-        if (Math.abs(dx) > Math.abs(dy)) {
-            // Go horizontal first
-            points.push({ x: to.x, y: from.y });
-            points.push({ x: to.x, y: to.y });
-        } else {
-            // Go vertical first
-            points.push({ x: from.x, y: to.y });
-            points.push({ x: to.x, y: to.y });
-        }
+        // Always go horizontal first, then vertical
+        // First move horizontally to the target's x position
+        points.push({ x: to.x, y: from.y });
+        // Then move vertically to the target's y position
+        points.push({ x: to.x, y: to.y });
 
         return points;
     };
@@ -135,6 +127,7 @@ const Editor = () => {
         const arrowLength = 10;
         const arrowAngle = Math.PI / 6; // 30 degrees
 
+        // Draw arrow head
         ctx.beginPath();
         ctx.moveTo(to.x, to.y);
         ctx.lineTo(
@@ -301,6 +294,7 @@ const Editor = () => {
 
         if (!isDragging || !draggedNode) return;
 
+        // Update node position with snapped coordinates
         setNodes((prevNodes) =>
             prevNodes.map((node) =>
                 node.id === draggedNode.id
@@ -359,6 +353,7 @@ const Editor = () => {
         const nodeId = e.dataTransfer.getData("nodeId");
 
         if (nodeId === "new") {
+            // Snap the node position to grid when creating
             const newNode: Node = {
                 id: Date.now().toString(),
                 x: snapToGrid(x),
