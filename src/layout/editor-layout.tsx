@@ -1,8 +1,10 @@
 "use client";
-import { AppBar, Box, MenuItem, styled, Toolbar } from "@mui/material";
+import { AppBar, Box, MenuItem, styled, Toolbar, Button } from "@mui/material";
 import React from "react";
 import MenuButton from "../components/MenuButton";
 import Image from "next/image";
+import { useAuthContext } from "../components/AuthProvider";
+import LogoutIcon from "@mui/icons-material/Logout";
 
 const StyledMenuItem = styled(MenuItem)({
     fontSize: "16px",
@@ -10,6 +12,12 @@ const StyledMenuItem = styled(MenuItem)({
 });
 
 const EditorLayout = ({ children }: { children: React.ReactNode }) => {
+    const { logout } = useAuthContext();
+    
+    const handleLogout = () => {
+        logout();
+    };
+    
     return (
         <Box
             sx={{
@@ -59,6 +67,7 @@ const EditorLayout = ({ children }: { children: React.ReactNode }) => {
                             width={100}
                             height={40}
                             priority
+                            style={{ objectFit: 'contain' }}
                         />
                     </Box>
                     <Box sx={{ position: "relative", display: "flex", gap: 2 }}>
@@ -90,6 +99,26 @@ const EditorLayout = ({ children }: { children: React.ReactNode }) => {
                             <StyledMenuItem>Documentation</StyledMenuItem>
                             <StyledMenuItem>About</StyledMenuItem>
                         </MenuButton>
+                    </Box>
+                    <Box sx={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                        <Button 
+                            variant="outlined" 
+                            size="small" 
+                            onClick={handleLogout}
+                            startIcon={<LogoutIcon />}
+                            sx={{ 
+                                height: '28px', 
+                                textTransform: 'none',
+                                borderColor: '#1976d2',
+                                color: '#1976d2',
+                                '&:hover': {
+                                    backgroundColor: 'rgba(25, 118, 210, 0.04)',
+                                    borderColor: '#1565c0'
+                                }
+                            }}
+                        >
+                            Logout
+                        </Button>
                     </Box>
                 </Toolbar>
             </AppBar>

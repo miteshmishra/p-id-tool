@@ -22,9 +22,9 @@ export function middleware(request: NextRequest) {
 
     // Case 2: Accessing login while already authenticated
     if (isLoginPage && isAuthenticated) {
-        // Check if there's a redirect parameter, otherwise go to home
+        // Check if there's a redirect parameter, otherwise go to editor
         const redirectTo = request.nextUrl.searchParams.get("redirect");
-        const targetUrl = redirectTo || "/";
+        const targetUrl = redirectTo || "/editor";
         return NextResponse.redirect(new URL(targetUrl, request.url));
     }
 

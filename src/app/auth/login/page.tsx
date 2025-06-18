@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import {
     Box,
     Tabs,
@@ -17,6 +18,7 @@ import {
     Divider,
     Alert,
     CircularProgress,
+    Link,
 } from "@mui/material";
 import {
     Visibility,
@@ -27,7 +29,7 @@ import {
     Google,
     GitHub,
 } from "@mui/icons-material";
-import Cookies from "js-cookie";
+import { useAuthContext } from "@/components/AuthProvider";
 
 const LoginPage = () => {
     const [tab, setTab] = useState(0);
@@ -56,60 +58,61 @@ const LoginPage = () => {
         <Box
             sx={{
                 minHeight: "100vh",
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                background: "#f8f9fa",
                 display: "flex",
+                flexDirection: "column",
                 justifyContent: "center",
                 alignItems: "center",
                 p: 2,
                 position: "relative",
-                overflow: "hidden",
-                "&::before": {
-                    content: '""',
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background:
-                        'url(\'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="75" cy="75" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.1)"/><circle cx="10" cy="60" r="0.5" fill="rgba(255,255,255,0.1)"/><circle cx="90" cy="40" r="0.5" fill="rgba(255,255,255,0.1)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>\')',
-                    opacity: 0.3,
-                },
             }}
         >
+            <Box 
+                sx={{ 
+                    position: "absolute", 
+                    top: 0, 
+                    left: 0, 
+                    width: "100%", 
+                    height: "100%", 
+                    opacity: 0.05,
+                    backgroundSize: "30px 30px",
+                    zIndex: 0,
+                }}
+            />
+            
+            <Box sx={{ mb: 4, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Box 
+                    component="img"
+                    src="/lineagelogo.png"
+                    alt="OneLineage Logo"
+                    sx={{ 
+                        width: 'auto',
+                        height: '70px'
+                    }}
+                />
+            </Box>
+            
             <Paper
-                elevation={24}
+                elevation={3}
                 sx={{
                     p: { xs: 3, sm: 4 },
                     width: isSmall ? "100%" : 450,
-                    borderRadius: 4,
-                    background: "rgba(255, 255, 255, 0.95)",
-                    backdropFilter: "blur(10px)",
-                    border: "1px solid rgba(255, 255, 255, 0.2)",
-                    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+                    borderRadius: 2,
+                    background: "#ffffff",
+                    border: "1px solid rgba(0, 0, 0, 0.08)",
+                    boxShadow: "0 4px 20px rgba(0, 0, 0, 0.08)",
                     position: "relative",
                     overflow: "hidden",
-                    "&::before": {
-                        content: '""',
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: "4px",
-                        background: "linear-gradient(90deg, #667eea, #764ba2)",
-                    },
+                    zIndex: 1,
                 }}
             >
                 <Typography
                     variant="h4"
-                    fontWeight={700}
+                    fontWeight={600}
                     align="center"
                     mb={1}
                     sx={{
-                        background:
-                            "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                        backgroundClip: "text",
-                        WebkitBackgroundClip: "text",
-                        WebkitTextFillColor: "transparent",
+                        color: "#0067a0",
                     }}
                 >
                     Welcome Back
@@ -137,13 +140,15 @@ const LoginPage = () => {
                             textTransform: "none",
                             fontSize: "1rem",
                             minWidth: 120,
+                            color: "#718096",
+                        },
+                        "& .Mui-selected": {
+                            color: "#0067a0 !important",
                         },
                         "& .MuiTabs-indicator": {
                             height: 3,
                             borderRadius: 1.5,
-                            background:
-                                "linear-gradient(90deg, #667eea, #764ba2)",
-                            transition: "width 0.3s ease-in-out",
+                            background: "#0067a0",
                         },
                     }}
                 >
@@ -171,38 +176,64 @@ const LoginPage = () => {
 const SignInForm = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
     const [formData, setFormData] = useState({
         email: "",
         password: "",
     });
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const { login } = useAuthContext();
+    
+    // Get redirect URL from query params if available
+    const redirectUrl = searchParams.get("redirect") || "/editor";
 
     const handleChange =
         (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
             setFormData((prev) => ({ ...prev, [field]: event.target.value }));
+            setError(""); // Clear error when user types
         };
+        
+    const handleForgotPassword = (event: React.MouseEvent) => {
+        event.preventDefault();
+        // Placeholder for forgot password functionality
+        console.log("Forgot password clicked");
+    };
 
     const handleSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
         setLoading(true);
+        setError("");
 
         // Check for specific credentials
         if (
             formData.email === "admin@test.com" &&
             formData.password === "1234"
         ) {
-            // Set auth token cookie
-            Cookies.set("auth-token", "true", { expires: 7 }); // Expires in 7 days
-            console.log("Authentication successful! Cookie set.");
-            router.push("/");
+            // Use the login function from auth context
+            const userData = {
+                id: "1",
+                email: formData.email,
+                name: "Admin User"
+            };
+            
+            const token = "mock-jwt-token-for-demo";
+            const success = login(userData, token);
+            
+            if (success) {
+                console.log("Authentication successful!");
+                router.push(redirectUrl);
+            } else {
+                setError("Failed to log in. Please try again.");
+            }
         } else {
-            console.log("Invalid credentials");
+            setError("Invalid credentials. Try admin@test.com / 1234");
         }
 
         // Simulate API call
         setTimeout(() => {
             setLoading(false);
-        }, 2000);
+        }, 1000);
     };
 
     return (
@@ -224,13 +255,16 @@ const SignInForm = () => {
                 }}
                 sx={{
                     "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
+                        borderRadius: 1,
                         "&:hover fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
                         "&.Mui-focused fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
+                    },
+                    "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0067a0",
                     },
                 }}
             />
@@ -265,17 +299,46 @@ const SignInForm = () => {
                 }}
                 sx={{
                     "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
+                        borderRadius: 1,
                         "&:hover fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
                         "&.Mui-focused fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
+                    },
+                    "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0067a0",
                     },
                 }}
             />
+            
+            {/* Forgot Password Link */}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                <Link
+                    component="button"
+                    variant="body2"
+                    onClick={handleForgotPassword}
+                    sx={{
+                        color: '#0067a0',
+                        textDecoration: 'none',
+                        '&:hover': {
+                            textDecoration: 'underline',
+                        },
+                        cursor: 'pointer',
+                        fontWeight: 500
+                    }}
+                >
+                    Forgot Password?
+                </Link>
+            </Box>
 
+            {error && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                    {error}
+                </Alert>
+            )}
+            
             <Button
                 fullWidth
                 variant="contained"
@@ -285,18 +348,15 @@ const SignInForm = () => {
                 sx={{
                     mt: 3,
                     mb: 2,
-                    borderRadius: 2,
+                    borderRadius: 1,
                     height: 48,
-                    background:
-                        "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                    background: "#0067a0",
                     textTransform: "none",
                     fontSize: "1rem",
                     fontWeight: 600,
-                    boxShadow: "0 4px 15px rgba(102, 126, 234, 0.4)",
+                    boxShadow: "0 4px 6px rgba(26, 54, 93, 0.25)",
                     "&:hover": {
-                        background:
-                            "linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)",
-                        boxShadow: "0 6px 20px rgba(102, 126, 234, 0.6)",
+                        background: "#2c5282",
                     },
                 }}
             >
@@ -319,14 +379,14 @@ const SignInForm = () => {
                     variant="outlined"
                     startIcon={<Google />}
                     sx={{
-                        borderRadius: 2,
+                        borderRadius: 1,
                         height: 48,
                         textTransform: "none",
                         borderColor: "#ddd",
                         color: "#333",
                         "&:hover": {
-                            borderColor: "#667eea",
-                            backgroundColor: "rgba(102, 126, 234, 0.04)",
+                            borderColor: "#0067a0",
+                            backgroundColor: "rgba(26, 54, 93, 0.04)",
                         },
                     }}
                 >
@@ -337,14 +397,14 @@ const SignInForm = () => {
                     variant="outlined"
                     startIcon={<GitHub />}
                     sx={{
-                        borderRadius: 2,
+                        borderRadius: 1,
                         height: 48,
                         textTransform: "none",
                         borderColor: "#ddd",
                         color: "#333",
                         "&:hover": {
-                            borderColor: "#667eea",
-                            backgroundColor: "rgba(102, 126, 234, 0.04)",
+                            borderColor: "#0067a0",
+                            backgroundColor: "rgba(26, 54, 93, 0.04)",
                         },
                     }}
                 >
@@ -398,13 +458,16 @@ const SignUpForm = () => {
                 }}
                 sx={{
                     "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
+                        borderRadius: 1,
                         "&:hover fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
                         "&.Mui-focused fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
+                    },
+                    "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0067a0",
                     },
                 }}
             />
@@ -425,13 +488,16 @@ const SignUpForm = () => {
                 }}
                 sx={{
                     "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
+                        borderRadius: 1,
                         "&:hover fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
                         "&.Mui-focused fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
+                    },
+                    "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0067a0",
                     },
                 }}
             />
@@ -466,13 +532,16 @@ const SignUpForm = () => {
                 }}
                 sx={{
                     "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
+                        borderRadius: 1,
                         "&:hover fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
                         "&.Mui-focused fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
+                    },
+                    "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0067a0",
                     },
                 }}
             />
@@ -509,13 +578,16 @@ const SignUpForm = () => {
                 }}
                 sx={{
                     "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
+                        borderRadius: 1,
                         "&:hover fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
                         "&.Mui-focused fieldset": {
-                            borderColor: "#667eea",
+                            borderColor: "#0067a0",
                         },
+                    },
+                    "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0067a0",
                     },
                 }}
             />
@@ -529,18 +601,15 @@ const SignUpForm = () => {
                 sx={{
                     mt: 3,
                     mb: 2,
-                    borderRadius: 2,
+                    borderRadius: 1,
                     height: 48,
-                    background:
-                        "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                    background: "#0067a0",
                     textTransform: "none",
                     fontSize: "1rem",
                     fontWeight: 600,
-                    boxShadow: "0 4px 15px rgba(102, 126, 234, 0.4)",
+                    boxShadow: "0 4px 6px rgba(26, 54, 93, 0.25)",
                     "&:hover": {
-                        background:
-                            "linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)",
-                        boxShadow: "0 6px 20px rgba(102, 126, 234, 0.6)",
+                        background: "#2c5282",
                     },
                 }}
             >
@@ -563,14 +632,14 @@ const SignUpForm = () => {
                     variant="outlined"
                     startIcon={<Google />}
                     sx={{
-                        borderRadius: 2,
+                        borderRadius: 1,
                         height: 48,
                         textTransform: "none",
                         borderColor: "#ddd",
                         color: "#333",
                         "&:hover": {
-                            borderColor: "#667eea",
-                            backgroundColor: "rgba(102, 126, 234, 0.04)",
+                            borderColor: "#0067a0",
+                            backgroundColor: "rgba(26, 54, 93, 0.04)",
                         },
                     }}
                 >
@@ -581,14 +650,14 @@ const SignUpForm = () => {
                     variant="outlined"
                     startIcon={<GitHub />}
                     sx={{
-                        borderRadius: 2,
+                        borderRadius: 1,
                         height: 48,
                         textTransform: "none",
                         borderColor: "#ddd",
                         color: "#333",
                         "&:hover": {
-                            borderColor: "#667eea",
-                            backgroundColor: "rgba(102, 126, 234, 0.04)",
+                            borderColor: "#0067a0",
+                            backgroundColor: "rgba(26, 54, 93, 0.04)",
                         },
                     }}
                 >

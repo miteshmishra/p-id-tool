@@ -2,6 +2,7 @@
 import { Box } from "@mui/material";
 import React, { useEffect, useRef, useState } from "react";
 import ToolbarDrawer from "../../components/ToolbarDrawer";
+import { ProtectedRoute } from "../../components/ProtectedRoute";
 
 interface Node {
     id: string;
@@ -28,7 +29,7 @@ interface PIDNode extends Node {
     type: "valve" | "pump" | "tank";
 }
 
-const Editor = () => {
+const EditorContent = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [nodes, setNodes] = useState<PIDNode[]>([]);
     const [connections, setConnections] = useState<Connection[]>([]);
@@ -812,6 +813,14 @@ const Editor = () => {
                 />
             </Box>
         </Box>
+    );
+};
+
+const Editor = () => {
+    return (
+        <ProtectedRoute>
+            <EditorContent />
+        </ProtectedRoute>
     );
 };
 
