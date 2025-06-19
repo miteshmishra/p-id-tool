@@ -22,9 +22,9 @@ interface Connection {
 }
 
 const GRID_SIZE = 20; // Size of each grid cell in pixels
-const GRID_COLOR = "#e0e0e0"; // Light gray color for the grid
-const GRID_LINE_WIDTH = 0.5; // Width of grid lines
-const GRID_HIGHLIGHT_COLOR = "#a0a0ff"; // Highlight color for active grid lines
+const GRID_COLOR = "#d0d0d0"; // Slightly darker gray for better visibility
+const GRID_LINE_WIDTH = 1; // Thicker grid lines for better visibility at high zoom
+const GRID_HIGHLIGHT_COLOR = "#6464ff"; // Stronger highlight color for active grid lines
 
 interface PIDNode extends Node {
     type: "valve" | "pump" | "tank";
@@ -57,6 +57,8 @@ const EditorContent = () => {
     const [isPanning, setIsPanning] = useState(false);
     const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
     const [scale, setScale] = useState(1);
+    const [isSpacePressed, setIsSpacePressed] = useState(false);
+    const [isMoveMode, setIsMoveMode] = useState(false);
     const offsetRef = useRef({ x: 0, y: 0 });
     const panStartRef = useRef({ x: 0, y: 0 });
 
@@ -122,29 +124,36 @@ const EditorContent = () => {
     ) => {
         ctx.save();
 
-        // Calculate grid boundaries based on view offset
-        const startX = Math.floor(-viewOffset.x / GRID_SIZE) * GRID_SIZE;
-        const startY = Math.floor(-viewOffset.y / GRID_SIZE) * GRID_SIZE;
-        const endX = startX + width + GRID_SIZE * 2;
-        const endY = startY + height + GRID_SIZE * 2;
+        // Calculate grid boundaries based on view offset with extended margins
+        // This creates an "infinite" grid effect by drawing beyond visible area
+        const startX = Math.floor(-viewOffset.x / GRID_SIZE) * GRID_SIZE - width;
+        const startY = Math.floor(-viewOffset.y / GRID_SIZE) * GRID_SIZE - height;
+        const endX = startX + width * 3 + GRID_SIZE * 2;
+        const endY = startY + height * 3 + GRID_SIZE * 2;
 
-        // Draw regular grid
+        // Enable crisp lines by aligning to pixel boundaries
+        ctx.translate(0.5, 0.5);
+
+        // Draw regular grid with improved quality
         ctx.strokeStyle = GRID_COLOR;
         ctx.lineWidth = GRID_LINE_WIDTH;
+        ctx.lineCap = 'square';
 
         // Draw vertical lines
         for (let x = startX; x <= endX; x += GRID_SIZE) {
+            const alignedX = Math.floor(x);
             ctx.beginPath();
-            ctx.moveTo(x, startY);
-            ctx.lineTo(x, endY);
+            ctx.moveTo(alignedX, startY);
+            ctx.lineTo(alignedX, endY);
             ctx.stroke();
         }
 
         // Draw horizontal lines
         for (let y = startY; y <= endY; y += GRID_SIZE) {
+            const alignedY = Math.floor(y);
             ctx.beginPath();
-            ctx.moveTo(startX, y);
-            ctx.lineTo(endX, y);
+            ctx.moveTo(startX, alignedY);
+            ctx.lineTo(endX, alignedY);
             ctx.stroke();
         }
 
@@ -155,22 +164,22 @@ const EditorContent = () => {
 
             // Highlight vertical line
             ctx.strokeStyle = GRID_HIGHLIGHT_COLOR;
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.moveTo(snapX, 0);
-            ctx.lineTo(snapX, height);
+            ctx.moveTo(Math.floor(snapX), 0);
+            ctx.lineTo(Math.floor(snapX), height);
             ctx.stroke();
 
             // Highlight horizontal line
             ctx.beginPath();
-            ctx.moveTo(0, snapY);
-            ctx.lineTo(width, snapY);
+            ctx.moveTo(0, Math.floor(snapY));
+            ctx.lineTo(width, Math.floor(snapY));
             ctx.stroke();
 
             // Draw a small dot at the intersection
             ctx.fillStyle = GRID_HIGHLIGHT_COLOR;
             ctx.beginPath();
-            ctx.arc(snapX, snapY, 3, 0, Math.PI * 2);
+            ctx.arc(Math.floor(snapX), Math.floor(snapY), 3, 0, Math.PI * 2);
             ctx.fill();
         }
 
@@ -284,40 +293,54 @@ const EditorContent = () => {
         ctx: CanvasRenderingContext2D,
         from: { x: number; y: number },
         to: { x: number; y: number },
-        color: string = "#666",
-        lineWidth: number = 2
+        color: string = "#2c3e50",
+        lineWidth: number = 2 // Thinner line width
     ) => {
         ctx.save();
 
         // Calculate the path points that follow grid lines
         const points = calculateOrthogonalPath(from, to);
 
-        // Draw the path with a thicker line for better visibility
-        ctx.beginPath();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = lineWidth;
-        ctx.lineCap = "round"; // Round line caps for better appearance
-        ctx.lineJoin = "round"; // Round line joins for better appearance
-
-        // Draw the path
-        ctx.moveTo(points[0].x, points[0].y);
+        // Draw each segment separately for pixel-perfect rendering
         for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i].x, points[i].y);
+            const p1 = points[i-1];
+            const p2 = points[i];
+            
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lineWidth;
+            
+            // Use square caps for horizontal/vertical lines for crisp rendering
+            if (p1.x === p2.x || p1.y === p2.y) {
+                ctx.lineCap = "square";
+                
+                // Pixel-perfect alignment
+                const x1 = Math.floor(p1.x) + 0.5;
+                const y1 = Math.floor(p1.y) + 0.5;
+                const x2 = Math.floor(p2.x) + 0.5;
+                const y2 = Math.floor(p2.y) + 0.5;
+                
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+            } else {
+                // Use round caps for diagonal lines
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+            }
+            
+            ctx.stroke();
         }
-        ctx.stroke();
 
-        // No arrows at the end of lines
         ctx.restore();
     };
 
-    // Handle canvas resizing
-    // Handle canvas resizing
+    // Simple canvas resizing function
     const handleCanvasResize = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         
-        // Set canvas dimensions with device pixel ratio for high DPI displays
-        const dpr = window.devicePixelRatio || 1;
         const parent = canvas.parentElement;
         if (!parent) return;
         
@@ -325,9 +348,9 @@ const EditorContent = () => {
         const width = parent.clientWidth;
         const height = parent.clientHeight;
         
-        // Set the canvas size (accounting for the scale)
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
+        // Set canvas size to match display size exactly (1:1 pixel mapping)
+        canvas.width = width;
+        canvas.height = height;
         canvas.style.width = `${width}px`;
         canvas.style.height = `${height}px`;
     }, []);
@@ -356,29 +379,24 @@ const EditorContent = () => {
         if (!canvas) return;
 
         // Get the context for rendering
-        const ctx = canvas.getContext("2d", { alpha: false });
+        const ctx = canvas.getContext("2d");
         if (!ctx) return;
         
-        const dpr = window.devicePixelRatio || 1;
         const rect = canvas.getBoundingClientRect();
         
-        // Reset transform and apply device pixel ratio
+        // Reset transform
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.scale(dpr, dpr);
         
         // Apply view offset for panning
         ctx.translate(viewOffset.x, viewOffset.y);
         
-        // Note: We don't apply scale here because we're using CSS transform for scaling
-        
-        // Enable anti-aliasing for smoother lines
+        // Enable image smoothing for better quality
         ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
 
-        // Clear canvas with white background (clear the entire visible area)
+        // Clear canvas with light gray background for better grid visibility
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform for clearing
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = "#f8f9fa"; // Light gray background for better grid visibility
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.restore(); // Restore the transform with offset
 
@@ -386,7 +404,8 @@ const EditorContent = () => {
         if (showGrid) {
             const activePoint = (isConnecting || isStretchingWire) ? 
                 { x: snapToGrid(mousePosition.x), y: snapToGrid(mousePosition.y) } : undefined;
-            drawGrid(ctx, rect.width, rect.height, activePoint);
+            // Draw grid with extended dimensions for infinite grid effect
+            drawGrid(ctx, rect.width * 3, rect.height * 3, activePoint);
         }
 
         // Draw connections
@@ -396,29 +415,28 @@ const EditorContent = () => {
 
             if (fromNode && toNode) {
                 if (connection.path) {
-                    // Draw custom path connection
+                    // Draw custom path connection with enhanced quality
                     ctx.save();
                     
-                    // Use consistent color and width for all wires
-                    const wireColor = "#444";
-                    const wireWidth = 1.5;
+                    // Enhanced wire styling
+                    const wireColor = "#2c3e50";
+                    const wireWidth = 2; // Thinner width
                     
-                    // Draw crisp lines by aligning to pixel grid
+                    // Draw each segment separately for better control and quality
                     for (let i = 1; i < connection.path.length; i++) {
                         const p1 = connection.path[i-1];
                         const p2 = connection.path[i];
                         
-                        // Draw the line segment with sharp edges
                         ctx.beginPath();
                         ctx.strokeStyle = wireColor;
                         ctx.lineWidth = wireWidth;
                         
-                        // Use square line caps for orthogonal lines
+                        // Use different rendering for horizontal/vertical vs diagonal lines
                         if (p1.x === p2.x || p1.y === p2.y) {
+                            // For straight lines, use square caps and align to pixel grid
                             ctx.lineCap = "square";
-                            ctx.lineJoin = "miter";
                             
-                            // Align to pixel grid for horizontal/vertical lines
+                            // Pixel-perfect alignment for straight lines
                             const x1 = Math.floor(p1.x) + 0.5;
                             const y1 = Math.floor(p1.y) + 0.5;
                             const x2 = Math.floor(p2.x) + 0.5;
@@ -427,7 +445,7 @@ const EditorContent = () => {
                             ctx.moveTo(x1, y1);
                             ctx.lineTo(x2, y2);
                         } else {
-                            // Use round caps for diagonal lines
+                            // For diagonal lines, use round caps
                             ctx.lineCap = "round";
                             ctx.lineJoin = "round";
                             ctx.moveTo(p1.x, p1.y);
@@ -440,24 +458,38 @@ const EditorContent = () => {
                     // No arrows at the end of lines
                     
                     // Draw control points on the wire segments for stretching
-                    // Skip first and last points as they're connected to nodes
                     if (connection.path.length > 2) {
                         for (let i = 1; i < connection.path.length - 1; i++) {
                             const point = connection.path[i];
                             
-                            // Draw a square control point with consistent style
-                            const size = 6;
-                            const x = Math.floor(point.x - size/2) + 0.5;
-                            const y = Math.floor(point.y - size/2) + 0.5;
+                            // Draw high-quality control points with pixel-perfect alignment
+                            const size = 10; // Larger size for better visibility
+                            const x = Math.floor(point.x);
+                            const y = Math.floor(point.y);
                             
-                            // Fill with white
+                            // Draw square control point for better visibility at high zoom
+                            // Draw shadow/outline first
+                            ctx.fillStyle = "rgba(0,0,0,0.3)";
+                            ctx.fillRect(x - size/2 - 1, y - size/2 - 1, size + 2, size + 2);
+                            
+                            // Draw main control point
                             ctx.fillStyle = "#ffffff";
-                            ctx.fillRect(x, y, size, size);
+                            ctx.fillRect(x - size/2, y - size/2, size, size);
                             
-                            // Add a border
-                            ctx.strokeStyle = "#444";
+                            // Add border
+                            ctx.strokeStyle = wireColor;
+                            ctx.lineWidth = 1.5;
+                            ctx.strokeRect(x - size/2, y - size/2, size, size);
+                            
+                            // Add cross inside for better visibility
+                            ctx.beginPath();
+                            ctx.moveTo(x - size/4, y);
+                            ctx.lineTo(x + size/4, y);
+                            ctx.moveTo(x, y - size/4);
+                            ctx.lineTo(x, y + size/4);
+                            ctx.strokeStyle = wireColor;
                             ctx.lineWidth = 1;
-                            ctx.strokeRect(x, y, size, size);
+                            ctx.stroke();
                         }
                     }
                     
@@ -483,7 +515,7 @@ const EditorContent = () => {
             // Draw P&ID symbol based on node type
             ctx.strokeStyle = "#3498db";
             ctx.fillStyle = "#ffffff";
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 2; // Thinner line width
 
             if ((node as PIDNode).type) {
                 const pidNode = node as PIDNode;
@@ -524,7 +556,7 @@ const EditorContent = () => {
             points.forEach((point) => {
                 const coords = getConnectionPointCoords(node, point);
                 ctx.beginPath();
-                ctx.arc(coords.x, coords.y, 4, 0, Math.PI * 2);
+                ctx.arc(coords.x, coords.y, 7, 0, Math.PI * 2); // Adjusted connection points
                 ctx.fillStyle = "#fff";
                 ctx.fill();
                 ctx.strokeStyle = "#666";
@@ -558,7 +590,7 @@ const EditorContent = () => {
             // Draw a small dot at the current mouse position
             ctx.beginPath();
             ctx.fillStyle = "#666";
-            ctx.arc(mousePosition.x, mousePosition.y, 4, 0, Math.PI * 2);
+            ctx.arc(mousePosition.x, mousePosition.y, 7, 0, Math.PI * 2); // Adjusted dot for better visibility
             ctx.fill();
         } else if (isConnecting && connectionStart) {
             const startNode = nodes.find(
@@ -648,8 +680,8 @@ const EditorContent = () => {
             const coords = getConnectionPointCoords(node, point);
             const dx = x - coords.x;
             const dy = y - coords.y;
-            if (dx * dx + dy * dy <= 16) {
-                // 4px radius for connection points
+            if (dx * dx + dy * dy <= 49) {
+                // 7px radius for connection points
                 return point;
             }
         }
@@ -658,7 +690,7 @@ const EditorContent = () => {
     
     // Function to check if a point is near a wire segment
     const getWireSegmentAtPosition = (x: number, y: number) => {
-        const WIRE_CLICK_THRESHOLD = 10; // Distance threshold to detect click on wire
+        const WIRE_CLICK_THRESHOLD = 15; // Increased distance threshold to detect click on wire
         
         for (const connection of connections) {
             if (connection.path && connection.path.length > 1) {
@@ -716,7 +748,7 @@ const EditorContent = () => {
         return Math.sqrt(dx * dx + dy * dy);
     };
 
-    // Handle keyboard events for connection drawing, wire stretching, grid toggle, and panning
+    // Enhanced keyboard events for connection drawing, wire stretching, grid toggle, and panning
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // Cancel connection drawing with Escape key
@@ -739,7 +771,13 @@ const EditorContent = () => {
                 setShowGrid(prev => !prev);
             }
             
-            // Arrow keys for panning
+            // Space key for panning mode
+            if (e.key === " " && !e.repeat) {
+                setIsSpacePressed(true);
+                e.preventDefault();
+            }
+            
+            // Arrow keys for precise panning
             const panStep = 50;
             const container = canvasRef.current?.parentElement?.parentElement;
             if (container) {
@@ -757,7 +795,7 @@ const EditorContent = () => {
                     e.preventDefault();
                 }
                 
-                // Space key to reset view
+                // Ctrl+Space to reset view
                 if (e.key === " " && e.ctrlKey) {
                     container.scrollLeft = 0;
                     container.scrollTop = 0;
@@ -768,17 +806,25 @@ const EditorContent = () => {
             }
         };
 
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.key === " ") {
+                setIsSpacePressed(false);
+            }
+        };
+
         window.addEventListener("keydown", handleKeyDown);
+        window.addEventListener("keyup", handleKeyUp);
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
+            window.removeEventListener("keyup", handleKeyUp);
         };
     }, [isDrawingManualConnection, isStretchingWire, stretchedConnection]);
 
     const handleMouseDown = (
         e: React.MouseEvent<HTMLCanvasElement, MouseEvent>
     ) => {
-        // Handle middle mouse button for panning
-        if (e.button === 1 || e.buttons === 4) {
+        // Handle middle mouse button, space+left click, or move mode for panning
+        if (e.button === 1 || e.buttons === 4 || (e.button === 0 && (isSpacePressed || isMoveMode))) {
             setIsPanning(true);
             panStartRef.current = {
                 x: e.clientX,
@@ -1123,7 +1169,7 @@ const EditorContent = () => {
                 id: Date.now().toString(),
                 x: snappedX,
                 y: snappedY,
-                radius: 30,
+                radius: 35, // Smaller radius
                 type: nodeId as "valve" | "pump" | "tank",
             };
             setNodes((prev) => [...prev, newNode]);
@@ -1132,7 +1178,7 @@ const EditorContent = () => {
                 id: Date.now().toString(),
                 x: snappedX,
                 y: snappedY,
-                radius: 30,
+                radius: 35, // Smaller radius
                 type: "valve", // Default type
             };
             setNodes((prev) => [...prev, newNode]);
@@ -1146,10 +1192,10 @@ const EditorContent = () => {
     const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
         e.preventDefault();
         
-        // Calculate zoom factor
-        const zoomIntensity = 0.1;
+        // Calculate zoom factor with finer control
+        const zoomIntensity = e.ctrlKey ? 0.05 : 0.1; // Finer zoom with Ctrl key
         const delta = e.deltaY < 0 ? zoomIntensity : -zoomIntensity;
-        const newScale = Math.max(0.1, Math.min(5, scale + delta));
+        const newScale = Math.max(0.1, Math.min(10, scale + delta)); // Allow higher zoom
         
         if (newScale !== scale) {
             // Get the container and mouse position
@@ -1170,11 +1216,12 @@ const EditorContent = () => {
                 // Update scale
                 setScale(newScale);
                 
-                // Apply scroll after a short delay to allow the scale change to take effect
-                setTimeout(() => {
-                    container.scrollLeft = newPointX - mouseX;
-                    container.scrollTop = newPointY - mouseY;
-                }, 10);
+                // Force canvas redraw with new scale
+                handleCanvasResize();
+                
+                // Apply scroll immediately
+                container.scrollLeft = newPointX - mouseX;
+                container.scrollTop = newPointY - mouseY;
             }
         }
     };
@@ -1216,8 +1263,8 @@ const EditorContent = () => {
                 >
                     <div
                         style={{
-                            width: `${Math.max(2000, 2000 / scale)}px`,
-                            height: `${Math.max(2000, 2000 / scale)}px`,
+                            width: `${Math.max(10000, 10000 / scale)}px`,
+                            height: `${Math.max(10000, 10000 / scale)}px`,
                             position: "relative",
                         }}
                     >
@@ -1228,19 +1275,24 @@ const EditorContent = () => {
                                 height: "100%",
                                 cursor: isPanning
                                     ? "grabbing"
+                                    : isSpacePressed
+                                    ? "grab"
+                                    : isMoveMode
+                                    ? "move"
                                     : isConnecting
                                     ? "crosshair"
                                     : isStretchingWire
                                     ? "move"
                                     : isDragging
                                     ? "grabbing"
-                                    : "grab",
-                                backgroundColor: "#ffffff",
+                                    : "default",
+                                backgroundColor: "#f8f9fa", // Light gray background
                                 position: "absolute",
                                 top: 0,
                                 left: 0,
                                 transform: `scale(${scale})`,
                                 transformOrigin: "0 0",
+                                imageRendering: "pixelated", // Crisp rendering at high zoom
                             }}
                             onMouseDown={handleMouseDown}
                             onMouseMove={handleMouseMove}
@@ -1316,6 +1368,45 @@ const EditorContent = () => {
                             }}
                         >
                             Reset View
+                        </Box>
+                        
+                        <Box
+                            sx={{
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold",
+                                color: isMoveMode ? "#1976d2" : "#333",
+                                border: isMoveMode ? "1px solid #1976d2" : "none",
+                                padding: "0 8px",
+                                borderRadius: "4px",
+                                backgroundColor: isMoveMode ? "rgba(25, 118, 210, 0.1)" : "transparent",
+                                "&:hover": {
+                                    backgroundColor: isMoveMode ? "rgba(25, 118, 210, 0.2)" : "rgba(0,0,0,0.05)",
+                                },
+                            }}
+                            onClick={() => {
+                                const newMoveMode = !isMoveMode;
+                                setIsMoveMode(newMoveMode);
+                                // Only reset connection states when turning move mode ON
+                                if (newMoveMode) {
+                                    setIsConnecting(false);
+                                    setConnectionStart(null);
+                                    setIsDrawingManualConnection(false);
+                                    setConnectionPoints([]);
+                                }
+                            }}
+                        >
+                            {isMoveMode ? "Move Mode: ON" : "Move Mode: OFF"}
+                        </Box>
+                        
+                        <Box
+                            sx={{
+                                fontSize: "12px",
+                                color: "#666",
+                                fontStyle: "italic"
+                            }}
+                        >
+                            {isSpacePressed ? "Pan Mode (Space)" : "Hold Space to Pan"}
                         </Box>
                     </Box>
                     
