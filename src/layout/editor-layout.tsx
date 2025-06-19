@@ -62,7 +62,7 @@ const EditorLayout = ({ children }: { children: React.ReactNode }) => {
                         }}
                     >
                         <Image
-                            src="/lineagelogo.png"
+                            src="https://www.onelineage.com/themes/custom/lineage_custom_new/assets/lineage_logo.svg"
                             alt="Lineage Logo"
                             width={100}
                             height={40}
@@ -96,6 +96,8 @@ const EditorLayout = ({ children }: { children: React.ReactNode }) => {
                             <StyledMenuItem>Add Tank</StyledMenuItem>
                         </MenuButton>
                         <MenuButton label="Help">
+                            <StyledMenuItem>Report a feature</StyledMenuItem>
+                            <StyledMenuItem>Report Bug</StyledMenuItem>
                             <StyledMenuItem>Documentation</StyledMenuItem>
                             <StyledMenuItem>About</StyledMenuItem>
                         </MenuButton>

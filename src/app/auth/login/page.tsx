@@ -83,7 +83,7 @@ const LoginPage = () => {
             <Box sx={{ mb: 4, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Box 
                     component="img"
-                    src="/lineagelogo.png"
+                    src="https://www.onelineage.com/themes/custom/lineage_custom_new/assets/lineage_logo.svg"
                     alt="OneLineage Logo"
                     sx={{ 
                         width: 'auto',

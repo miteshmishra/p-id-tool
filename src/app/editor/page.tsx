@@ -1,6 +1,6 @@
 "use client";
 import { Box } from "@mui/material";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import ToolbarDrawer from "../../components/ToolbarDrawer";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 
@@ -18,6 +18,7 @@ interface Connection {
     fromPoint: "top" | "right" | "bottom" | "left";
     toPoint: "top" | "right" | "bottom" | "left";
     path?: { x: number; y: number }[]; // Optional custom path for manual connections
+    isStretched?: boolean; // Flag to indicate if the wire is stretched
 }
 
 const GRID_SIZE = 20; // Size of each grid cell in pixels
@@ -46,7 +47,18 @@ const EditorContent = () => {
     >([]);
     const [isDrawingManualConnection, setIsDrawingManualConnection] =
         useState(false);
+    const [isStretchingWire, setIsStretchingWire] = useState(false);
+    const [stretchedConnection, setStretchedConnection] = useState<{
+        connectionId: string;
+        pointIndex: number;
+    } | null>(null);
+    const [showCoordinates, setShowCoordinates] = useState(true);
+    const [showGrid, setShowGrid] = useState(true);
+    const [isPanning, setIsPanning] = useState(false);
+    const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
+    const [scale, setScale] = useState(1);
     const offsetRef = useRef({ x: 0, y: 0 });
+    const panStartRef = useRef({ x: 0, y: 0 });
 
     // P&ID symbols definitions
     const symbols = {
@@ -110,23 +122,29 @@ const EditorContent = () => {
     ) => {
         ctx.save();
 
+        // Calculate grid boundaries based on view offset
+        const startX = Math.floor(-viewOffset.x / GRID_SIZE) * GRID_SIZE;
+        const startY = Math.floor(-viewOffset.y / GRID_SIZE) * GRID_SIZE;
+        const endX = startX + width + GRID_SIZE * 2;
+        const endY = startY + height + GRID_SIZE * 2;
+
         // Draw regular grid
         ctx.strokeStyle = GRID_COLOR;
         ctx.lineWidth = GRID_LINE_WIDTH;
 
         // Draw vertical lines
-        for (let x = 0; x <= width; x += GRID_SIZE) {
+        for (let x = startX; x <= endX; x += GRID_SIZE) {
             ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, height);
+            ctx.moveTo(x, startY);
+            ctx.lineTo(x, endY);
             ctx.stroke();
         }
 
         // Draw horizontal lines
-        for (let y = 0; y <= height; y += GRID_SIZE) {
+        for (let y = startY; y <= endY; y += GRID_SIZE) {
             ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(width, y);
+            ctx.moveTo(startX, y);
+            ctx.lineTo(endX, y);
             ctx.stroke();
         }
 
@@ -227,6 +245,40 @@ const EditorContent = () => {
 
         return points;
     };
+    
+    // Helper function to ensure a point maintains the orientation of a wire segment
+    const maintainWireOrientation = (
+        point: { x: number; y: number },
+        prevPoint: { x: number; y: number } | null,
+        nextPoint: { x: number; y: number } | null
+    ) => {
+        let newX = point.x;
+        let newY = point.y;
+        
+        // Check if this is part of a horizontal segment (based on previous point)
+        if (prevPoint && Math.abs(prevPoint.y - point.y) < GRID_SIZE) {
+            // Keep Y coordinate the same, only allow horizontal movement
+            newY = prevPoint.y;
+        }
+        // Check if this is part of a vertical segment (based on previous point)
+        else if (prevPoint && Math.abs(prevPoint.x - point.x) < GRID_SIZE) {
+            // Keep X coordinate the same, only allow vertical movement
+            newX = prevPoint.x;
+        }
+        
+        // Check if this is part of a horizontal segment (based on next point)
+        if (nextPoint && Math.abs(nextPoint.y - point.y) < GRID_SIZE) {
+            // Keep Y coordinate the same, only allow horizontal movement
+            newY = nextPoint.y;
+        }
+        // Check if this is part of a vertical segment (based on next point)
+        else if (nextPoint && Math.abs(nextPoint.x - point.x) < GRID_SIZE) {
+            // Keep X coordinate the same, only allow vertical movement
+            newX = nextPoint.x;
+        }
+        
+        return { x: newX, y: newY };
+    };
 
     const drawOrthogonalConnection = (
         ctx: CanvasRenderingContext2D,
@@ -254,49 +306,88 @@ const EditorContent = () => {
         }
         ctx.stroke();
 
-        // Draw arrow at the end if we have at least 2 points
-        if (points.length >= 2) {
-            const lastSegment = points[points.length - 2];
-            const angle = Math.atan2(
-                to.y - lastSegment.y,
-                to.x - lastSegment.x
-            );
-            const arrowLength = 10;
-            const arrowAngle = Math.PI / 6; // 30 degrees
-
-            ctx.beginPath();
-            ctx.moveTo(to.x, to.y);
-            ctx.lineTo(
-                to.x - arrowLength * Math.cos(angle - arrowAngle),
-                to.y - arrowLength * Math.sin(angle - arrowAngle)
-            );
-            ctx.lineTo(
-                to.x - arrowLength * Math.cos(angle + arrowAngle),
-                to.y - arrowLength * Math.sin(angle + arrowAngle)
-            );
-            ctx.closePath();
-            ctx.fillStyle = color;
-            ctx.fill();
-        }
+        // No arrows at the end of lines
         ctx.restore();
     };
+
+    // Handle canvas resizing
+    // Handle canvas resizing
+    const handleCanvasResize = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        
+        // Set canvas dimensions with device pixel ratio for high DPI displays
+        const dpr = window.devicePixelRatio || 1;
+        const parent = canvas.parentElement;
+        if (!parent) return;
+        
+        // Get the size of the parent container
+        const width = parent.clientWidth;
+        const height = parent.clientHeight;
+        
+        // Set the canvas size (accounting for the scale)
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+    }, []);
+    
+    // Set up resize listener
+    useEffect(() => {
+        // Initial setup
+        handleCanvasResize();
+        
+        // Add resize listener
+        window.addEventListener('resize', handleCanvasResize);
+        
+        // Cleanup
+        return () => {
+            window.removeEventListener('resize', handleCanvasResize);
+        };
+    }, [handleCanvasResize]);
+    
+    // Update canvas when scale changes
+    useEffect(() => {
+        handleCanvasResize();
+    }, [scale, handleCanvasResize]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
-        canvas.width = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
-
-        const ctx = canvas.getContext("2d");
+        // Get the context for rendering
+        const ctx = canvas.getContext("2d", { alpha: false });
         if (!ctx) return;
+        
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        
+        // Reset transform and apply device pixel ratio
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+        
+        // Apply view offset for panning
+        ctx.translate(viewOffset.x, viewOffset.y);
+        
+        // Note: We don't apply scale here because we're using CSS transform for scaling
+        
+        // Enable anti-aliasing for smoother lines
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
 
-        // Clear canvas
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Clear canvas with white background (clear the entire visible area)
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform for clearing
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore(); // Restore the transform with offset
 
-        // Draw grid with active point highlighting when connecting
-        const activePoint = isConnecting ? mousePosition : undefined;
-        drawGrid(ctx, canvas.width, canvas.height, activePoint);
+        // Draw grid with active point highlighting when connecting or stretching
+        if (showGrid) {
+            const activePoint = (isConnecting || isStretchingWire) ? 
+                { x: snapToGrid(mousePosition.x), y: snapToGrid(mousePosition.y) } : undefined;
+            drawGrid(ctx, rect.width, rect.height, activePoint);
+        }
 
         // Draw connections
         connections.forEach((connection) => {
@@ -307,50 +398,69 @@ const EditorContent = () => {
                 if (connection.path) {
                     // Draw custom path connection
                     ctx.save();
-                    ctx.beginPath();
-                    ctx.strokeStyle = "#666";
-                    ctx.lineWidth = 2;
-                    ctx.lineCap = "round";
-                    ctx.lineJoin = "round";
-
-                    // Draw the path
-                    ctx.moveTo(connection.path[0].x, connection.path[0].y);
+                    
+                    // Use consistent color and width for all wires
+                    const wireColor = "#444";
+                    const wireWidth = 1.5;
+                    
+                    // Draw crisp lines by aligning to pixel grid
                     for (let i = 1; i < connection.path.length; i++) {
-                        ctx.lineTo(connection.path[i].x, connection.path[i].y);
-                    }
-                    ctx.stroke();
-
-                    // Draw arrow at the end if there are at least 2 points
-                    if (connection.path.length >= 2) {
-                        const lastPoint =
-                            connection.path[connection.path.length - 1];
-                        const prevPoint =
-                            connection.path[connection.path.length - 2];
-                        const angle = Math.atan2(
-                            lastPoint.y - prevPoint.y,
-                            lastPoint.x - prevPoint.x
-                        );
-                        const arrowLength = 10;
-                        const arrowAngle = Math.PI / 6; // 30 degrees
-
+                        const p1 = connection.path[i-1];
+                        const p2 = connection.path[i];
+                        
+                        // Draw the line segment with sharp edges
                         ctx.beginPath();
-                        ctx.moveTo(lastPoint.x, lastPoint.y);
-                        ctx.lineTo(
-                            lastPoint.x -
-                                arrowLength * Math.cos(angle - arrowAngle),
-                            lastPoint.y -
-                                arrowLength * Math.sin(angle - arrowAngle)
-                        );
-                        ctx.lineTo(
-                            lastPoint.x -
-                                arrowLength * Math.cos(angle + arrowAngle),
-                            lastPoint.y -
-                                arrowLength * Math.sin(angle + arrowAngle)
-                        );
-                        ctx.closePath();
-                        ctx.fillStyle = "#666";
-                        ctx.fill();
+                        ctx.strokeStyle = wireColor;
+                        ctx.lineWidth = wireWidth;
+                        
+                        // Use square line caps for orthogonal lines
+                        if (p1.x === p2.x || p1.y === p2.y) {
+                            ctx.lineCap = "square";
+                            ctx.lineJoin = "miter";
+                            
+                            // Align to pixel grid for horizontal/vertical lines
+                            const x1 = Math.floor(p1.x) + 0.5;
+                            const y1 = Math.floor(p1.y) + 0.5;
+                            const x2 = Math.floor(p2.x) + 0.5;
+                            const y2 = Math.floor(p2.y) + 0.5;
+                            
+                            ctx.moveTo(x1, y1);
+                            ctx.lineTo(x2, y2);
+                        } else {
+                            // Use round caps for diagonal lines
+                            ctx.lineCap = "round";
+                            ctx.lineJoin = "round";
+                            ctx.moveTo(p1.x, p1.y);
+                            ctx.lineTo(p2.x, p2.y);
+                        }
+                        
+                        ctx.stroke();
                     }
+
+                    // No arrows at the end of lines
+                    
+                    // Draw control points on the wire segments for stretching
+                    // Skip first and last points as they're connected to nodes
+                    if (connection.path.length > 2) {
+                        for (let i = 1; i < connection.path.length - 1; i++) {
+                            const point = connection.path[i];
+                            
+                            // Draw a square control point with consistent style
+                            const size = 6;
+                            const x = Math.floor(point.x - size/2) + 0.5;
+                            const y = Math.floor(point.y - size/2) + 0.5;
+                            
+                            // Fill with white
+                            ctx.fillStyle = "#ffffff";
+                            ctx.fillRect(x, y, size, size);
+                            
+                            // Add a border
+                            ctx.strokeStyle = "#444";
+                            ctx.lineWidth = 1;
+                            ctx.strokeRect(x, y, size, size);
+                        }
+                    }
+                    
                     ctx.restore();
                 } else {
                     // Draw auto-generated orthogonal connection
@@ -461,18 +571,69 @@ const EditorContent = () => {
                 );
                 drawOrthogonalConnection(ctx, start, mousePosition);
             }
+        } else if (isStretchingWire && stretchedConnection) {
+            // Draw a visual indicator showing which axis the wire can be stretched along
+            const connection = connections.find(conn => conn.id === stretchedConnection.connectionId);
+            if (connection && connection.path) {
+                const pointIndex = stretchedConnection.pointIndex;
+                const point = connection.path[pointIndex];
+                const prevPoint = pointIndex > 0 ? connection.path[pointIndex - 1] : null;
+                const nextPoint = pointIndex < connection.path.length - 1 ? connection.path[pointIndex + 1] : null;
+                
+                ctx.save();
+                ctx.strokeStyle = "#666";
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 3]); // Dashed line
+                
+                // Determine if this is a horizontal or vertical segment
+                const isHorizontal = (prevPoint && Math.abs(prevPoint.y - point.y) < GRID_SIZE) || 
+                                    (nextPoint && Math.abs(nextPoint.y - point.y) < GRID_SIZE);
+                const isVertical = (prevPoint && Math.abs(prevPoint.x - point.x) < GRID_SIZE) || 
+                                  (nextPoint && Math.abs(nextPoint.x - point.x) < GRID_SIZE);
+                
+                if (isHorizontal) {
+                    // Draw horizontal guide line
+                    ctx.beginPath();
+                    ctx.moveTo(0, point.y);
+                    ctx.lineTo(canvas.width / window.devicePixelRatio, point.y);
+                    ctx.stroke();
+                }
+                
+                if (isVertical) {
+                    // Draw vertical guide line
+                    ctx.beginPath();
+                    ctx.moveTo(point.x, 0);
+                    ctx.lineTo(point.x, canvas.height / window.devicePixelRatio);
+                    ctx.stroke();
+                }
+                
+                ctx.restore();
+            }
         }
-    }, [nodes, connections, isConnecting, connectionStart, mousePosition]);
+    }, [nodes, connections, isConnecting, connectionStart, mousePosition, isStretchingWire, stretchedConnection]);
 
     const getMousePos = (
         e: React.MouseEvent<HTMLCanvasElement, MouseEvent>
     ) => {
         const canvas = canvasRef.current;
         if (!canvas) return { x: 0, y: 0 };
+        
+        // Get the container's scroll position
+        const container = canvas.parentElement?.parentElement;
+        const scrollLeft = container?.scrollLeft || 0;
+        const scrollTop = container?.scrollTop || 0;
+        
+        // Get position in canvas coordinates
         const rect = canvas.getBoundingClientRect();
+        
+        // Calculate the position considering scale and scroll
+        const canvasX = (e.clientX - rect.left) / scale + scrollLeft / scale;
+        const canvasY = (e.clientY - rect.top) / scale + scrollTop / scale;
+        
+        // Adjust for view offset to get world coordinates
         return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
+            x: canvasX - viewOffset.x,
+            y: canvasY - viewOffset.y,
         };
     };
 
@@ -494,16 +655,116 @@ const EditorContent = () => {
         }
         return null;
     };
+    
+    // Function to check if a point is near a wire segment
+    const getWireSegmentAtPosition = (x: number, y: number) => {
+        const WIRE_CLICK_THRESHOLD = 10; // Distance threshold to detect click on wire
+        
+        for (const connection of connections) {
+            if (connection.path && connection.path.length > 1) {
+                // Check each segment of the wire
+                for (let i = 1; i < connection.path.length; i++) {
+                    const p1 = connection.path[i - 1];
+                    const p2 = connection.path[i];
+                    
+                    // Calculate distance from point to line segment
+                    const distance = distanceToLineSegment(p1.x, p1.y, p2.x, p2.y, x, y);
+                    
+                    if (distance <= WIRE_CLICK_THRESHOLD) {
+                        return {
+                            connectionId: connection.id,
+                            pointIndex: i // The index of the end point of the segment
+                        };
+                    }
+                }
+            }
+        }
+        return null;
+    };
+    
+    // Calculate distance from point to line segment
+    const distanceToLineSegment = (x1: number, y1: number, x2: number, y2: number, px: number, py: number) => {
+        const A = px - x1;
+        const B = py - y1;
+        const C = x2 - x1;
+        const D = y2 - y1;
+        
+        const dot = A * C + B * D;
+        const lenSq = C * C + D * D;
+        let param = -1;
+        
+        if (lenSq !== 0) {
+            param = dot / lenSq;
+        }
+        
+        let xx, yy;
+        
+        if (param < 0) {
+            xx = x1;
+            yy = y1;
+        } else if (param > 1) {
+            xx = x2;
+            yy = y2;
+        } else {
+            xx = x1 + param * C;
+            yy = y1 + param * D;
+        }
+        
+        const dx = px - xx;
+        const dy = py - yy;
+        
+        return Math.sqrt(dx * dx + dy * dy);
+    };
 
-    // Handle keyboard events for connection drawing
+    // Handle keyboard events for connection drawing, wire stretching, grid toggle, and panning
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // Cancel connection drawing with Escape key
-            if (e.key === "Escape" && isDrawingManualConnection) {
-                setIsDrawingManualConnection(false);
-                setIsConnecting(false);
-                setConnectionStart(null);
-                setConnectionPoints([]);
+            if (e.key === "Escape") {
+                if (isDrawingManualConnection) {
+                    setIsDrawingManualConnection(false);
+                    setIsConnecting(false);
+                    setConnectionStart(null);
+                    setConnectionPoints([]);
+                }
+                
+                if (isStretchingWire) {
+                    setIsStretchingWire(false);
+                    setStretchedConnection(null);
+                }
+            }
+            
+            // Toggle grid with 'G' key
+            if (e.key === "g" || e.key === "G") {
+                setShowGrid(prev => !prev);
+            }
+            
+            // Arrow keys for panning
+            const panStep = 50;
+            const container = canvasRef.current?.parentElement?.parentElement;
+            if (container) {
+                if (e.key === "ArrowLeft") {
+                    container.scrollLeft -= panStep;
+                    e.preventDefault();
+                } else if (e.key === "ArrowRight") {
+                    container.scrollLeft += panStep;
+                    e.preventDefault();
+                } else if (e.key === "ArrowUp") {
+                    container.scrollTop -= panStep;
+                    e.preventDefault();
+                } else if (e.key === "ArrowDown") {
+                    container.scrollTop += panStep;
+                    e.preventDefault();
+                }
+                
+                // Space key to reset view
+                if (e.key === " " && e.ctrlKey) {
+                    container.scrollLeft = 0;
+                    container.scrollTop = 0;
+                    setScale(1);
+                    setViewOffset({ x: 0, y: 0 });
+                    e.preventDefault();
+                }
             }
         };
 
@@ -511,11 +772,24 @@ const EditorContent = () => {
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
         };
-    }, [isDrawingManualConnection]);
+    }, [isDrawingManualConnection, isStretchingWire, stretchedConnection]);
 
     const handleMouseDown = (
         e: React.MouseEvent<HTMLCanvasElement, MouseEvent>
     ) => {
+        // Handle middle mouse button for panning
+        if (e.button === 1 || e.buttons === 4) {
+            setIsPanning(true);
+            panStartRef.current = {
+                x: e.clientX,
+                y: e.clientY
+            };
+            return;
+        }
+        
+        // Handle left mouse button for normal operations
+        if (e.button !== 0) return;
+        
         const { x, y } = getMousePos(e);
         const snappedX = snapToGrid(x);
         const snappedY = snapToGrid(y);
@@ -526,6 +800,15 @@ const EditorContent = () => {
                 ...prev,
                 { x: snappedX, y: snappedY },
             ]);
+            return;
+        }
+
+        // Check if clicked on a wire segment for stretching
+        const wireSegment = getWireSegmentAtPosition(x, y);
+        if (wireSegment) {
+            setIsStretchingWire(true);
+            setStretchedConnection(wireSegment);
+            setMousePosition({ x: snappedX, y: snappedY });
             return;
         }
 
@@ -556,30 +839,95 @@ const EditorContent = () => {
             const dx = x - clickedNode.x;
             const dy = y - clickedNode.y;
             offsetRef.current = { x: dx, y: dy };
+        } else {
+            // If clicked on empty space with left button and Shift key, start panning
+            if (e.shiftKey) {
+                setIsPanning(true);
+                const canvas = canvasRef.current;
+                if (canvas) {
+                    const rect = canvas.getBoundingClientRect();
+                    panStartRef.current = {
+                        x: e.clientX - rect.left,
+                        y: e.clientY - rect.top
+                    };
+                }
+            }
         }
     };
 
     const handleMouseMove = (
         e: React.MouseEvent<HTMLCanvasElement, MouseEvent>
     ) => {
+        // Handle panning
+        if (isPanning) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const container = canvas.parentElement?.parentElement;
+                if (container) {
+                    // Calculate the delta movement
+                    const deltaX = e.clientX - panStartRef.current.x;
+                    const deltaY = e.clientY - panStartRef.current.y;
+                    
+                    // Update scroll position
+                    container.scrollLeft -= deltaX;
+                    container.scrollTop -= deltaY;
+                    
+                    // Update pan start position
+                    panStartRef.current = { x: e.clientX, y: e.clientY };
+                }
+            }
+            return;
+        }
+        
         const { x, y } = getMousePos(e);
         const snappedX = snapToGrid(x);
         const snappedY = snapToGrid(y);
 
-        // Always update mouse position for grid highlighting
-        // When connecting, we want to show the snapped position
-        // Otherwise, show the actual position for smooth cursor movement
-        if (isConnecting || isDrawingManualConnection) {
-            setMousePosition({ x: snappedX, y: snappedY });
-        } else {
-            setMousePosition({ x, y });
+        // Always update raw mouse position for coordinate display
+        setMousePosition({ x, y });
+        
+        // For operations, use snapped coordinates
+        const operationPosition = { x: snappedX, y: snappedY };
+
+        // Handle wire stretching
+        if (isStretchingWire && stretchedConnection) {
+            setConnections((prevConnections) =>
+                prevConnections.map((connection) => {
+                    if (connection.id === stretchedConnection.connectionId && connection.path) {
+                        // Create a new path with the stretched point updated
+                        const newPath = [...connection.path];
+                        const pointIndex = stretchedConnection.pointIndex;
+                        
+                        // Get previous and next points to determine orientation
+                        const prevPoint = pointIndex > 0 ? newPath[pointIndex - 1] : null;
+                        const nextPoint = pointIndex < newPath.length - 1 ? newPath[pointIndex + 1] : null;
+                        
+                        // Use helper function to maintain wire orientation
+                        const newPoint = maintainWireOrientation(
+                            { x: operationPosition.x, y: operationPosition.y },
+                            prevPoint,
+                            nextPoint
+                        );
+                        
+                        // Update the point
+                        newPath[pointIndex] = newPoint;
+                        
+                        return { 
+                            ...connection, 
+                            path: newPath
+                        };
+                    }
+                    return connection;
+                })
+            );
+            return;
         }
 
         if (!isDragging || !draggedNode) return;
 
         // Update node position with snapped coordinates
-        const newX = snapToGrid(x - offsetRef.current.x);
-        const newY = snapToGrid(y - offsetRef.current.y);
+        const newX = snapToGrid(mousePosition.x - offsetRef.current.x);
+        const newY = snapToGrid(mousePosition.y - offsetRef.current.y);
 
         // Update node position
         setNodes((prevNodes) =>
@@ -633,7 +981,20 @@ const EditorContent = () => {
     const handleMouseUp = (
         e: React.MouseEvent<HTMLCanvasElement, MouseEvent>
     ) => {
+        // Reset panning state
+        if (isPanning) {
+            setIsPanning(false);
+            return;
+        }
+        
         const { x, y } = getMousePos(e);
+
+        // Reset wire stretching state
+        if (isStretchingWire) {
+            setIsStretchingWire(false);
+            setStretchedConnection(null);
+            return;
+        }
 
         // Handle completing a manual connection
         if (isDrawingManualConnection && connectionStart) {
@@ -683,6 +1044,10 @@ const EditorContent = () => {
         setConnectionStart(null);
         setIsDrawingManualConnection(false);
         setConnectionPoints([]);
+        
+        // Reset stretching state
+        setIsStretchingWire(false);
+        setStretchedConnection(null);
     };
 
     const handleDoubleClick = (
@@ -732,10 +1097,26 @@ const EditorContent = () => {
 
     const handleDrop = (e: React.DragEvent<HTMLCanvasElement>) => {
         e.preventDefault();
-        const { x, y } = getMousePos(e as any);
-        const nodeId = e.dataTransfer.getData("nodeId");
+        
+        // Get the container's scroll position
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        
+        const container = canvas.parentElement?.parentElement;
+        const scrollLeft = container?.scrollLeft || 0;
+        const scrollTop = container?.scrollTop || 0;
+        
+        // Get position in canvas coordinates
+        const rect = canvas.getBoundingClientRect();
+        
+        // Calculate the position considering scale and scroll
+        const x = (e.clientX - rect.left) / scale + scrollLeft / scale - viewOffset.x;
+        const y = (e.clientY - rect.top) / scale + scrollTop / scale - viewOffset.y;
+        
         const snappedX = snapToGrid(x);
         const snappedY = snapToGrid(y);
+        
+        const nodeId = e.dataTransfer.getData("nodeId");
 
         if (nodeId === "valve" || nodeId === "pump" || nodeId === "tank") {
             const newNode: PIDNode = {
@@ -761,6 +1142,42 @@ const EditorContent = () => {
     const handleDragOver = (e: React.DragEvent<HTMLCanvasElement>) => {
         e.preventDefault();
     };
+    
+    const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+        e.preventDefault();
+        
+        // Calculate zoom factor
+        const zoomIntensity = 0.1;
+        const delta = e.deltaY < 0 ? zoomIntensity : -zoomIntensity;
+        const newScale = Math.max(0.1, Math.min(5, scale + delta));
+        
+        if (newScale !== scale) {
+            // Get the container and mouse position
+            const container = e.currentTarget.parentElement?.parentElement;
+            if (container) {
+                const rect = container.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Calculate the point on the canvas where the mouse is pointing
+                const pointX = container.scrollLeft + mouseX;
+                const pointY = container.scrollTop + mouseY;
+                
+                // Calculate the new scroll position to keep the mouse over the same point
+                const newPointX = (pointX / scale) * newScale;
+                const newPointY = (pointY / scale) * newScale;
+                
+                // Update scale
+                setScale(newScale);
+                
+                // Apply scroll after a short delay to allow the scale change to take effect
+                setTimeout(() => {
+                    container.scrollLeft = newPointX - mouseX;
+                    container.scrollTop = newPointY - mouseY;
+                }, 10);
+            }
+        }
+    };
 
     return (
         <Box
@@ -785,32 +1202,138 @@ const EditorContent = () => {
                     overflow: "hidden",
                 }}
             >
-                <canvas
-                    ref={canvasRef}
+                <div
                     style={{
                         width: "100%",
-                        height: "100%",
-                        // border: "1px solid black",
-                        cursor: isConnecting
-                            ? "crosshair"
-                            : isDragging
-                            ? "grabbing"
-                            : "grab",
-                        backgroundColor: "#ffffff",
+                        height: "calc(100% - 30px)", // Adjust for bottom toolbar
                         position: "absolute",
                         top: 0,
                         left: 0,
                         right: 0,
-                        bottom: 0,
+                        bottom: "30px", // Leave space for bottom toolbar
+                        overflow: "auto", // Enable scrollbars
                     }}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    onDrop={handleDrop}
-                    onDragOver={handleDragOver}
-                    onDoubleClick={handleDoubleClick}
+                >
+                    <div
+                        style={{
+                            width: `${Math.max(2000, 2000 / scale)}px`,
+                            height: `${Math.max(2000, 2000 / scale)}px`,
+                            position: "relative",
+                        }}
+                    >
+                        <canvas
+                            ref={canvasRef}
+                            style={{
+                                width: "100%",
+                                height: "100%",
+                                cursor: isPanning
+                                    ? "grabbing"
+                                    : isConnecting
+                                    ? "crosshair"
+                                    : isStretchingWire
+                                    ? "move"
+                                    : isDragging
+                                    ? "grabbing"
+                                    : "grab",
+                                backgroundColor: "#ffffff",
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                transform: `scale(${scale})`,
+                                transformOrigin: "0 0",
+                            }}
+                            onMouseDown={handleMouseDown}
+                            onMouseMove={handleMouseMove}
+                            onMouseUp={handleMouseUp}
+                            onMouseLeave={handleMouseUp}
+                            onDrop={handleDrop}
+                            onDragOver={handleDragOver}
+                            onDoubleClick={handleDoubleClick}
+                            onWheel={handleWheel}
+                        />
+                    </div>
+                </div>
                 />
+                
+                {/* Bottom toolbar */}
+                <Box
+                    sx={{
+                        position: "absolute",
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: "24px",
+                        backgroundColor: "#f0f0f0", // Reverted to old light gray color
+                        borderTop: "1px solid #ddd",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between", // Space between grid toggle and coordinates
+                        padding: "0 15px",
+                        zIndex: 1000,
+                    }}
+                >
+                    {/* Left side with controls */}
+                    <Box
+                        sx={{
+                            display: "flex",
+                            gap: "15px"
+                        }}
+                    >
+                        <Box
+                            sx={{
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold",
+                                color: "#333",
+                                opacity: showGrid ? 1 : 0.7,
+                                "&:hover": {
+                                    opacity: 1,
+                                },
+                            }}
+                            onClick={() => setShowGrid(!showGrid)}
+                        >
+                            {showGrid ? "Grid: On" : "Grid: Off"}
+                        </Box>
+                        
+                        <Box
+                            sx={{
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold",
+                                color: "#333",
+                                "&:hover": {
+                                    opacity: 0.7,
+                                },
+                            }}
+                            onClick={() => {
+                                const container = canvasRef.current?.parentElement?.parentElement;
+                                if (container) {
+                                    container.scrollLeft = 0;
+                                    container.scrollTop = 0;
+                                }
+                                setViewOffset({ x: 0, y: 0 });
+                                setScale(1);
+                            }}
+                        >
+                            Reset View
+                        </Box>
+                    </Box>
+                    
+                    {/* Right side with coordinates and scale */}
+                    <Box
+                        sx={{
+                            fontFamily: "monospace",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            color: "#333", // Dark text
+                            display: "flex",
+                            gap: "15px"
+                        }}
+                    >
+                        <span>X: {Math.round(mousePosition.x)} Y: {Math.round(mousePosition.y)}</span>
+                        <span>Zoom: {Math.round(scale * 100)}%</span>
+                    </Box>
+                </Box>
             </Box>
         </Box>
     );
